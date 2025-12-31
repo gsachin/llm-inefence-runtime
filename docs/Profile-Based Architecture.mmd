@@ -1,0 +1,17 @@
+flowchart LR
+    subgraph GPU["🎮 GPU Profiles"]
+        high["<b>high_param_unified_gpu</b><br/>───────────────<br/>100GB+ Unified Memory<br/>Llama-3.1-70B<br/>nvcr.io/nvidia/vllm<br/>GPU: 1"]
+        mid["<b>mid_range_gpu</b><br/>───────────────<br/>24GB+ VRAM<br/>Qwen2.5-1.5B<br/>vllm-openai:v0.6.6<br/>GPU: 1"]
+        dgx["<b>dgx_cloud_gpu</b><br/>───────────────<br/>A100/H100<br/>Qwen2.5-7B<br/>vllm-openai:v0.6.6<br/>GPU: 1"]
+    end
+
+    subgraph CPU["💻 CPU Profiles"]
+        cpu["<b>cpu_fallback</b><br/>───────────────<br/>CPU-only (CI/Dev)<br/>Qwen2.5-0.5B<br/>vllm-cpu:latest<br/>dtype: float32"]
+        local["<b>local_dev ⭐</b><br/>───────────────<br/>kind/minikube<br/>Qwen2.5-0.5B<br/>vllm-cpu:latest<br/>Mem: 6-10Gi<br/>ACTIVE"]
+    end
+
+    profiles["📄 profiles.yaml"] --> GPU & CPU
+
+    style local fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px
+    style GPU fill:#ffcdd2
+    style CPU fill:#e3f2fd

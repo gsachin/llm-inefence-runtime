@@ -1,0 +1,126 @@
+# =============================================================================
+# Profile-Based Inference Configuration
+# =============================================================================
+# Image Selection:
+# - GPU (NVIDIA): vllm/vllm-openai (CUDA)    | health: /health
+# - CPU-only:     openeuler/vllm-cpu (CPU)   | health: /health, /ping
+#
+# Architecture:
+# - ARM64 (Apple Silicon, Graviton): Ensure linux/arm64 manifest exists
+# - AMD64 (x86_64, DGX, cloud): Ensure linux/amd64 manifest exists
+# - For kind: Use `docker pull --platform <arch>` then `kind load`
+# =============================================================================
+
+profiles:
+  # ---------------------------------------------------------------------------
+  # High-End Unified Memory GPU
+  # ---------------------------------------------------------------------------
+  high_param_unified_gpu:
+    description: "For high-end unified memory systems (100GB+ unified mem)"
+    thresholds:
+      arch: "aarch64"
+      gpu: true
+      compute_cap: 90
+      effective_mem_gb: 100
+    model: "meta-llama/Llama-3.1-70B-Instruct"  # Gated: requires HF_TOKEN
+    image: "nvcr.io/nvidia/vllm:latest"
+    gpu_count: 1
+    resources:
+      cpu_request: "20"
+      cpu_limit: "20"
+      mem_request: "90Gi"
+      mem_limit: "110Gi"
+    vllm_flags: "--gpu-memory-utilization 0.75 --enforce-eager --max-model-len 16384"
+    health_live: "/health"
+    health_ready: "/health"
+
+  # ---------------------------------------------------------------------------
+  # Mid-Range Discrete GPU (24GB+ VRAM)
+  # ---------------------------------------------------------------------------
+  mid_range_gpu:
+    description: "Workstation/consumer GPUs (24GB+ VRAM)"
+    thresholds:
+      gpu: true
+      effective_mem_gb: 24
+    model: "Qwen/Qwen2.5-1.5B-Instruct"  # Ungated
+    image: "vllm/vllm-openai:v0.6.6"
+    gpu_count: 1
+    resources:
+      cpu_request: "8"
+      cpu_limit: "8"
+      mem_request: "16Gi"
+      mem_limit: "20Gi"
+    vllm_flags: "--gpu-memory-utilization 0.90"
+    health_live: "/health"
+    health_ready: "/health"
+
+  # ---------------------------------------------------------------------------
+  # CPU-Only Fallback
+  # ---------------------------------------------------------------------------
+  cpu_fallback:
+    description: "CPU-only environments (local dev, CI, any arch)"
+    thresholds:
+      gpu: false
+    model: "Qwen/Qwen2.5-0.5B-Instruct"  # Ungated, small
+    image: "openeuler/vllm-cpu:latest"   # Multi-arch (arm64+amd64)
+    gpu_count: 0
+    resources:
+      cpu_request: "4"
+      cpu_limit: "6"
+      mem_request: "6Gi"
+      mem_limit: "10Gi"
+    # --dtype float32: Required on ARM64 CPU - rms_norm not impl for BFloat16
+    vllm_flags: "--device cpu --dtype float32"
+    command_style: "api_server"
+    health_live: "/health"
+    health_ready: "/health"
+
+  # ---------------------------------------------------------------------------
+  # Local Development (Minimal for kind/minikube)
+  # ---------------------------------------------------------------------------
+  # Memory requirements for vLLM CPU:
+  #   - Model weights: ~1GB for Qwen2.5-0.5B
+  #   - KV cache: controlled by VLLM_CPU_KVCACHE_SPACE (default 4GB)
+  #   - Runtime overhead: ~2GB
+  #   - Total minimum: ~8GB for stable operation
+  # ---------------------------------------------------------------------------
+  local_dev:
+    description: "Minimal CPU profile for local Kubernetes clusters"
+    thresholds:
+      gpu: false
+    model: "Qwen/Qwen2.5-0.5B-Instruct"
+    image: "openeuler/vllm-cpu:latest"
+    gpu_count: 0
+    resources:
+      cpu_request: "2"
+      cpu_limit: "4"
+      mem_request: "6Gi"
+      mem_limit: "10Gi"
+    # --dtype float32: Required on ARM64 CPU - rms_norm not impl for BFloat16
+    # Reduce KV cache to 2GB to fit in memory limit via env var
+    vllm_flags: "--device cpu --dtype float32"
+    command_style: "api_server"
+    health_live: "/health"
+    health_ready: "/health"
+    env:
+      VLLM_CPU_KVCACHE_SPACE: "2"
+
+  # ---------------------------------------------------------------------------
+  # NVIDIA DGX / Cloud GPU (A100, H100)
+  # ---------------------------------------------------------------------------
+  dgx_cloud_gpu:
+    description: "NVIDIA DGX or cloud GPU instances (A100/H100)"
+    thresholds:
+      gpu: true
+      effective_mem_gb: 80
+    model: "Qwen/Qwen2.5-7B-Instruct"
+    image: "vllm/vllm-openai:v0.6.6"
+    gpu_count: 1
+    resources:
+      cpu_request: "16"
+      cpu_limit: "32"
+      mem_request: "64Gi"
+      mem_limit: "128Gi"
+    vllm_flags: "--gpu-memory-utilization 0.90 --max-model-len 32768"
+    health_live: "/health"
+    health_ready: "/health"

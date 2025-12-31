@@ -1,0 +1,6 @@
+# Back-compat placeholder.
+# Prefer:
+# - `orchestrator/requirement-dev.txt` for developer machines
+# - `orchestrator/requirement-prod.txt` for production/CI images
+
+PyYAML==6.0.2

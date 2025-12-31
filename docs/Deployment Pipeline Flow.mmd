@@ -1,0 +1,39 @@
+flowchart TD
+    subgraph Config["📁 Configuration"]
+        profiles["profiles.yaml<br/>Hardware → Config Mapping"]
+    end
+
+    subgraph Orchestrator["🔧 Orchestrator CLI"]
+        cli["orchestrator/cli.py<br/>Python CLI Tool"]
+        generated["orchestrator/generated/my-llm.yaml<br/>Generated Helm Values"]
+    end
+
+    subgraph Helm["⎈ Helm Chart"]
+        chart["charts/llm-vllm/<br/>Chart.yaml + values.yaml"]
+        template["templates/inferenceservice.yaml<br/>KServe Manifest Template"]
+    end
+
+    subgraph K8sControl["☸️ Kubernetes Control Plane"]
+        kserve["KServe Controller<br/>Watches InferenceService CRDs"]
+        scheduler["K8s Scheduler<br/>Pod Placement"]
+    end
+
+    subgraph Runtime["🚀 Runtime"]
+        pod["vLLM Pod<br/>Downloads model, serves API"]
+        hf["🤗 HuggingFace Hub<br/>Model Download"]
+    end
+
+    profiles -->|"Select profile<br/>(local_dev, cpu_fallback, etc.)"| cli
+    cli -->|"python cli.py --profile local_dev"| generated
+    generated -->|"helm upgrade --install"| chart
+    chart --> template
+    template -->|"Renders CRD"| kserve
+    kserve -->|"Creates Deployment + Service"| scheduler
+    scheduler -->|"Schedules Pod"| pod
+    pod <-->|"Downloads weights"| hf
+
+    style Config fill:#e3f2fd
+    style Orchestrator fill:#f3e5f5
+    style Helm fill:#e8f5e9
+    style K8sControl fill:#fff3e0
+    style Runtime fill:#ffebee

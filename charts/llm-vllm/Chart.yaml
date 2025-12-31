@@ -1,0 +1,6 @@
+apiVersion: v2
+name: llm-vllm
+description: Deploy a vLLM OpenAI-compatible server via KServe InferenceService
+type: application
+version: 0.1.0
+appVersion: "0.1"

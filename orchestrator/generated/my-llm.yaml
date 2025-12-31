@@ -1,0 +1,18 @@
+model: Qwen/Qwen2.5-0.5B-Instruct
+image: openeuler/vllm-cpu:latest
+gpuCount: 0
+vllmFlags: --device cpu --dtype float32
+runtime:
+  commandStyle: api_server
+resources:
+  cpuRequest: '2'
+  cpuLimit: '4'
+  memRequest: 6Gi
+  memLimit: 10Gi
+probes:
+  enabled: true
+  livenessPath: /health
+  readinessPath: /health
+env:
+- name: VLLM_CPU_KVCACHE_SPACE
+  value: '2'

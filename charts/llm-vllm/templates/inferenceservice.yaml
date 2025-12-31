@@ -1,0 +1,80 @@
+{{- if not .Values.model }}
+{{- fail "values.model is required" }}
+{{- end }}
+{{- if not .Values.image }}
+{{- fail "values.image is required" }}
+{{- end }}
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "llm-vllm.labels" . | nindent 4 }}
+spec:
+  predictor:
+    containers:
+      - name: vllm
+        image: {{ .Values.image | quote }}
+        ports:
+          - containerPort: {{ .Values.service.port }}
+            name: http
+        command: ["bash", "-lc"]
+        args:
+          {{- if eq (.Values.runtime.commandStyle | default "serve") "api_server" }}
+          - {{ printf "python -m vllm.entrypoints.openai.api_server --host 0.0.0.0 --port %v --model %s %s" (.Values.service.port | int) .Values.model (.Values.vllmFlags | default "") | quote }}
+          {{- else }}
+          - {{ printf "vllm serve %s %s" .Values.model (.Values.vllmFlags | default "") | quote }}
+          {{- end }}
+        {{- if .Values.env }}
+        env:
+          {{- range .Values.env }}
+          - name: {{ .name | quote }}
+            value: {{ .value | quote }}
+          {{- end }}
+        {{- end }}
+        resources:
+          requests:
+            {{- if .Values.resources.cpuRequest }}
+            cpu: {{ .Values.resources.cpuRequest | quote }}
+            {{- end }}
+            {{- if .Values.resources.memRequest }}
+            memory: {{ .Values.resources.memRequest | quote }}
+            {{- end }}
+            {{- if gt (int .Values.gpuCount) 0 }}
+            nvidia.com/gpu: {{ .Values.gpuCount | int }}
+            {{- end }}
+          limits:
+            {{- if .Values.resources.cpuLimit }}
+            cpu: {{ .Values.resources.cpuLimit | quote }}
+            {{- end }}
+            {{- if .Values.resources.memLimit }}
+            memory: {{ .Values.resources.memLimit | quote }}
+            {{- end }}
+            {{- if gt (int .Values.gpuCount) 0 }}
+            nvidia.com/gpu: {{ .Values.gpuCount | int }}
+            {{- end }}
+        {{- if .Values.probes.enabled }}
+        startupProbe:
+          httpGet:
+            path: {{ .Values.probes.readinessPath | quote }}
+            port: {{ .Values.service.port }}
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 120
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.probes.livenessPath | quote }}
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.probes.readinessPath | quote }}
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 12
+        {{- end }}

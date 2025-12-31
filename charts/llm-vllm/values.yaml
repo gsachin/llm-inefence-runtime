@@ -1,0 +1,50 @@
+# Chart values are intended to be generated from `profiles.yaml` by `orchestrator/`.
+
+nameOverride: ""
+fullnameOverride: ""
+
+model: ""
+image: ""
+
+# Keep vLLM flags as a single string (repo convention).
+vllmFlags: ""
+
+runtime:
+  # "serve" uses `vllm serve <model> <flags>`.
+  # "api_server" uses `python -m vllm.entrypoints.openai.api_server --model <model> <flags>`.
+  commandStyle: serve
+
+# If >0, chart requests that many NVIDIA GPUs.
+gpuCount: 0
+
+resources:
+  cpuRequest: ""
+  cpuLimit: ""
+  memRequest: ""
+  memLimit: ""
+
+# Environment variables to pass to the container
+# Format: list of {name: "VAR_NAME", value: "value"}
+env: []
+
+service:
+  port: 8000
+
+probes:
+  enabled: true
+  # Most vLLM images expose /health (not /v1/health/*)
+  livenessPath: /health
+  readinessPath: /health
+
+# Deployment strategy - Recreate avoids resource contention during rolling updates
+strategy:
+  type: Recreate
+
+routing:
+  enabled: false
+  # This chart does not assume any particular KServe service name.
+  # If you enable routing, set the backend Service name explicitly.
+  backendServiceName: ""
+  parentRefs: []
+  hostnames: []
+  matches: []

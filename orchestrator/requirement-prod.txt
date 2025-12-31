@@ -1,0 +1,27 @@
+# Production dependencies (install in CI images / containers)
+# Usage: python -m pip install -r orchestrator/requirement-prod.txt
+#
+# These are intentionally pinned for repeatable builds.
+
+# Runtime deps (required by current code)
+PyYAML==6.0.2
+
+# Production-grade libraries (for enterprise-ready orchestration features)
+# NOTE: Some may not be used until corresponding features are implemented.
+
+# Kubernetes API client
+kubernetes==33.1.0
+
+# Input/config validation
+jsonschema==4.25.1
+pydantic==2.11.5
+
+# Reliable network calls + retries
+requests==2.32.4
+tenacity==9.1.2
+
+# Structured logging
+structlog==25.4.0
+
+# Version parsing
+packaging==25.0

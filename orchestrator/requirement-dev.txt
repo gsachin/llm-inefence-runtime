@@ -1,0 +1,13 @@
+# Dev dependencies (install on developer machines)
+# Usage: python -m pip install -r orchestrator/requirement-dev.txt
+
+# Always include the pinned production set so dev matches CI/prod by default.
+-r requirement-prod.txt
+
+# Dev tooling
+# Keep these relatively fresh; they don't ship in production.
+ruff~=0.12.3
+mypy~=1.17.1
+pytest~=8.4.1
+pytest-cov~=6.2.1
+types-PyYAML~=6.0.12.20250822

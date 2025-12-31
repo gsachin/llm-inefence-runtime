@@ -1,0 +1,345 @@
+# LLM Inference Runtime - Architecture
+
+## System Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Clients["🖥️ Client Layer"]
+        curl["curl/HTTP"]
+        python["Python SDK"]
+        openai["OpenAI SDK"]
+        langchain["LangChain"]
+    end
+
+    subgraph API["OpenAI-Compatible API"]
+        endpoints["/v1/chat/completions<br/>/v1/completions<br/>/v1/models"]
+    end
+
+    subgraph K8s["☸️ Kubernetes Cluster (kind: llm-dev)"]
+        subgraph Ingress["Ingress Layer"]
+            portfwd["kubectl port-forward<br/>localhost:8000"]
+            gateway["Gateway API<br/>HTTPRoute / Envoy"]
+        end
+
+        subgraph KServe["KServe InferenceService"]
+            isvc["InferenceService: my-llm"]
+            svc["Service: my-llm-predictor<br/>ClusterIP: 10.96.69.237:80"]
+            deploy["Deployment: my-llm-predictor<br/>Replicas: 1/1"]
+        end
+
+        subgraph Pod["Pod Layer"]
+            subgraph Container["kserve-container"]
+                subgraph vLLM["vLLM OpenAI Server v0.9.1"]
+                    model["🤖 Qwen/Qwen2.5-0.5B-Instruct"]
+                    config["--device cpu<br/>--dtype float32<br/>VLLM_CPU_KVCACHE_SPACE=2"]
+                end
+            end
+            probes["Probes: /health<br/>startup: 20min | liveness: 30s | readiness: 30s"]
+            resources["Resources<br/>CPU: 2-4 | Memory: 6-10Gi"]
+        end
+
+        node["Node: llm-dev-control-plane (ARM64)<br/>Pod IP: 10.244.0.18"]
+    end
+
+    curl & python & openai & langchain --> endpoints
+    endpoints --> portfwd & gateway
+    portfwd & gateway --> svc
+    svc --> deploy
+    deploy --> Container
+    Container --> probes & resources
+    Pod --> node
+
+    style Clients fill:#e1f5fe
+    style K8s fill:#f3e5f5
+    style KServe fill:#e8f5e9
+    style Pod fill:#fff3e0
+    style vLLM fill:#ffebee
+    style model fill:#c8e6c9
+```
+
+---
+
+## Deployment Pipeline Flow
+
+```mermaid
+flowchart TD
+    subgraph Config["📁 Configuration"]
+        profiles["profiles.yaml<br/>Hardware → Config Mapping"]
+    end
+
+    subgraph Orchestrator["🔧 Orchestrator CLI"]
+        cli["orchestrator/cli.py<br/>Python CLI Tool"]
+        generated["orchestrator/generated/my-llm.yaml<br/>Generated Helm Values"]
+    end
+
+    subgraph Helm["⎈ Helm Chart"]
+        chart["charts/llm-vllm/<br/>Chart.yaml + values.yaml"]
+        template["templates/inferenceservice.yaml<br/>KServe Manifest Template"]
+    end
+
+    subgraph K8sControl["☸️ Kubernetes Control Plane"]
+        kserve["KServe Controller<br/>Watches InferenceService CRDs"]
+        scheduler["K8s Scheduler<br/>Pod Placement"]
+    end
+
+    subgraph Runtime["🚀 Runtime"]
+        pod["vLLM Pod<br/>Downloads model, serves API"]
+        hf["🤗 HuggingFace Hub<br/>Model Download"]
+    end
+
+    profiles -->|"Select profile<br/>(local_dev, cpu_fallback, etc.)"| cli
+    cli -->|"python cli.py --profile local_dev"| generated
+    generated -->|"helm upgrade --install"| chart
+    chart --> template
+    template -->|"Renders CRD"| kserve
+    kserve -->|"Creates Deployment + Service"| scheduler
+    scheduler -->|"Schedules Pod"| pod
+    pod <-->|"Downloads weights"| hf
+
+    style Config fill:#e3f2fd
+    style Orchestrator fill:#f3e5f5
+    style Helm fill:#e8f5e9
+    style K8sControl fill:#fff3e0
+    style Runtime fill:#ffebee
+```
+
+---
+
+## Profile-Based Architecture
+
+```mermaid
+flowchart LR
+    subgraph GPU["🎮 GPU Profiles"]
+        high["<b>high_param_unified_gpu</b><br/>───────────────<br/>100GB+ Unified Memory<br/>Llama-3.1-70B<br/>nvcr.io/nvidia/vllm<br/>GPU: 1"]
+        mid["<b>mid_range_gpu</b><br/>───────────────<br/>24GB+ VRAM<br/>Qwen2.5-1.5B<br/>vllm-openai:v0.6.6<br/>GPU: 1"]
+        dgx["<b>dgx_cloud_gpu</b><br/>───────────────<br/>A100/H100<br/>Qwen2.5-7B<br/>vllm-openai:v0.6.6<br/>GPU: 1"]
+    end
+
+    subgraph CPU["💻 CPU Profiles"]
+        cpu["<b>cpu_fallback</b><br/>───────────────<br/>CPU-only (CI/Dev)<br/>Qwen2.5-0.5B<br/>vllm-cpu:latest<br/>dtype: float32"]
+        local["<b>local_dev ⭐</b><br/>───────────────<br/>kind/minikube<br/>Qwen2.5-0.5B<br/>vllm-cpu:latest<br/>Mem: 6-10Gi<br/>ACTIVE"]
+    end
+
+    profiles["📄 profiles.yaml"] --> GPU & CPU
+
+    style local fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px
+    style GPU fill:#ffcdd2
+    style CPU fill:#e3f2fd
+```
+
+---
+
+## Network & Service Architecture
+
+```mermaid
+flowchart TB
+    external["🌐 External Client<br/>localhost:8000"]
+    
+    subgraph Cluster["☸️ Kubernetes Cluster Network"]
+        subgraph ServiceLayer["Service Layer"]
+            svc["📡 Service: my-llm-predictor<br/>ClusterIP: 10.96.69.237:80<br/>selector: app=isvc.my-llm-predictor"]
+        end
+        
+        subgraph Routing["kube-proxy / iptables"]
+            endpoints["🔗 Endpoints<br/>10.244.0.18:8000"]
+        end
+        
+        subgraph PodLayer["Pod Layer"]
+            subgraph Pod["Pod: my-llm-predictor-xxx"]
+                subgraph Container["kserve-container"]
+                    vllm["🚀 vLLM Server<br/>Listening: 0.0.0.0:8000"]
+                    subgraph Model["Model Runtime"]
+                        qwen["🤖 Qwen/Qwen2.5-0.5B-Instruct<br/>Parameters: ~500M<br/>Context: 32768 tokens<br/>KV Cache: 2GB"]
+                    end
+                end
+            end
+        end
+        
+        node["🖥️ Node: llm-dev-control-plane<br/>Arch: ARM64 (Apple Silicon)<br/>CNI: kindnet (10.244.0.0/16)"]
+    end
+
+    external -->|"port-forward"| svc
+    svc --> endpoints
+    endpoints --> vllm
+    vllm --> qwen
+    Pod --> node
+
+    style external fill:#e1f5fe
+    style ServiceLayer fill:#e8f5e9
+    style PodLayer fill:#fff3e0
+    style Model fill:#ffebee
+```
+
+---
+
+## Component Interactions
+
+```mermaid
+flowchart TD
+    subgraph Clients["🖥️ Clients"]
+        user["User/Client"]
+    end
+
+    subgraph Access["Access Layer"]
+        pf["Port-Forward<br/>(Dev)"]
+        mesh["Service Mesh<br/>(Istio)"]
+        gw["Gateway API<br/>(Envoy)"]
+    end
+
+    subgraph K8s["☸️ Kubernetes Resources"]
+        svc2["K8s Service<br/>my-llm-predictor<br/>Port: 80 → 8000"]
+        isvc2["KServe<br/>InferenceService<br/>my-llm"]
+        deploy2["Deployment<br/>my-llm-predictor<br/>Replicas: 1"]
+    end
+
+    subgraph Runtime2["🚀 Runtime"]
+        pod2["Pod<br/>vLLM Server"]
+        subgraph Internal["Internal Components"]
+            transformer["Transformer Model<br/>(Qwen2.5)"]
+            pytorch["PyTorch CPU Ops<br/>(float32)"]
+            tokenizer["Tokenizer"]
+        end
+        hf2["🤗 HuggingFace Hub"]
+    end
+
+    user --> pf & mesh & gw
+    pf & mesh & gw --> svc2
+    svc2 --> isvc2
+    isvc2 --> deploy2
+    deploy2 --> pod2
+    pod2 --> Internal
+    pod2 <-->|"Model Download"| hf2
+
+    style Clients fill:#e1f5fe
+    style K8s fill:#e8f5e9
+    style Runtime2 fill:#fff3e0
+    style Internal fill:#ffebee
+```
+
+---
+
+## File Structure
+
+```mermaid
+flowchart LR
+    subgraph Repo["📁 inference-runtime/"]
+        profiles["📄 profiles.yaml<br/>Profile definitions"]
+        
+        subgraph Charts["📁 charts/llm-vllm/"]
+            chart["Chart.yaml"]
+            values["values.yaml"]
+            subgraph Templates["📁 templates/"]
+                isvc_tpl["inferenceservice.yaml"]
+            end
+        end
+        
+        subgraph Orch["📁 orchestrator/"]
+            cli["🐍 cli.py<br/>Deployment CLI"]
+            subgraph Generated["📁 generated/"]
+                gen_values["my-llm.yaml"]
+            end
+        end
+        
+        subgraph Docs["📁 docs/"]
+            arch["ARCHITECTURE.md"]
+        end
+    end
+
+    profiles -->|"Input"| cli
+    cli -->|"Generates"| gen_values
+    gen_values -->|"helm -f"| chart
+    chart --> isvc_tpl
+
+    style profiles fill:#e8f5e9
+    style cli fill:#e3f2fd
+    style isvc_tpl fill:#fff3e0
+```
+
+---
+
+## Request Flow Sequence
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant PortFwd as kubectl port-forward
+    participant Svc as K8s Service
+    participant Pod as vLLM Pod
+    participant Model as Qwen Model
+    participant HF as HuggingFace Hub
+
+    Note over Pod,HF: Startup Phase (once)
+    Pod->>HF: Download model weights
+    HF-->>Pod: ~1GB model files
+    Pod->>Model: Load into memory (float32)
+    Model-->>Pod: Ready
+
+    Note over Client,Model: Inference Phase (per request)
+    Client->>PortFwd: POST /v1/chat/completions
+    PortFwd->>Svc: Forward to ClusterIP:80
+    Svc->>Pod: Route to Pod:8000
+    Pod->>Model: Tokenize + Generate
+    Model-->>Pod: Output tokens
+    Pod-->>Svc: JSON response
+    Svc-->>PortFwd: Response
+    PortFwd-->>Client: {"choices": [...]}
+```
+
+---
+
+## Current Deployment Configuration
+
+| Component | Value |
+|-----------|-------|
+| **Profile** | `local_dev` |
+| **Release** | `my-llm` |
+| **Namespace** | `llm` |
+| **Image** | `openeuler/vllm-cpu:latest` |
+| **Model** | `Qwen/Qwen2.5-0.5B-Instruct` |
+| **vLLM Flags** | `--device cpu --dtype float32` |
+| **CPU** | 2 request / 4 limit |
+| **Memory** | 6Gi request / 10Gi limit |
+| **KV Cache** | 2GB (`VLLM_CPU_KVCACHE_SPACE`) |
+| **Health Endpoint** | `/health` |
+| **API Port** | 8000 |
+
+---
+
+## API Endpoints
+
+```mermaid
+flowchart LR
+    subgraph Endpoints["🔌 vLLM API Endpoints (Port 8000)"]
+        health["GET /health<br/>Health Check"]
+        models["GET /v1/models<br/>List Models"]
+        chat["POST /v1/chat/completions<br/>Chat API (OpenAI)"]
+        completions["POST /v1/completions<br/>Text Completion"]
+        embeddings["POST /v1/embeddings<br/>Text Embeddings"]
+        metrics["GET /metrics<br/>Prometheus Metrics"]
+    end
+
+    client["🖥️ Client"] --> health & models & chat & completions & embeddings & metrics
+
+    style chat fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style health fill:#e3f2fd
+```
+
+---
+
+## Quick Reference Commands
+
+```bash
+# Deploy
+python orchestrator/cli.py --profile local_dev --release my-llm --namespace llm
+
+# Port-forward for local access
+kubectl port-forward -n llm svc/my-llm-predictor 8000:80
+
+# Test inference
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"Qwen/Qwen2.5-0.5B-Instruct","messages":[{"role":"user","content":"Hello!"}]}'
+
+# Check status
+kubectl get pods,svc,inferenceservice -n llm
+```

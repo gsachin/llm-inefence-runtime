@@ -1,0 +1,28 @@
+{{- if .Values.routing.enabled }}
+{{- if not .Values.routing.backendServiceName }}
+{{- fail "routing.backendServiceName is required when routing.enabled=true" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "llm-vllm.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.routing.parentRefs }}
+  parentRefs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.routing.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - {{- if .Values.routing.matches }}
+      matches:
+        {{- toYaml .Values.routing.matches | nindent 8 }}
+      {{- end }}
+      backendRefs:
+        - name: {{ .Values.routing.backendServiceName | quote }}
+          port: {{ .Values.service.port }}
+{{- end }}
