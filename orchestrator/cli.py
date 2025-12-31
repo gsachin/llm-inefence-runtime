@@ -76,7 +76,55 @@ def main() -> None:
         known = ", ".join(sorted(profiles.keys()))
         raise SystemExit(f"Unknown profile '{args.profile}'. Known: {known}")
 
-    values = _generate_values(profiles[args.profile])
+    profile = profiles[args.profile]
+
+    # --- Pre-flight checks ---
+    def run_check(cmd, capture_output=True, text=True):
+        try:
+            return subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=text).strip() if capture_output else subprocess.check_call(cmd)
+        except subprocess.CalledProcessError as e:
+            raise SystemExit(f"[Pre-flight] Command failed: {' '.join(cmd)}\n{e.output}")
+
+    # 1. Check KServe CRD
+    try:
+        run_check(["kubectl", "get", "crd", "inferenceservices.serving.kserve.io"])
+    except Exception:
+        raise SystemExit("[Pre-flight] KServe CRD not found. Please install KServe and try again.")
+
+    # 2. Detect node arch/resources
+    node_arch = run_check(["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.nodeInfo.architecture}"])
+    node_cpu = run_check(["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.allocatable.cpu}"])
+    node_mem = run_check(["kubectl", "get", "nodes", "-o", "jsonpath={.items[0].status.allocatable.memory}"])
+    try:
+        cpu_req = int(profile["resources"]["cpu_request"])
+        mem_req = int(profile["resources"]["mem_request"].replace("Gi", ""))
+        node_cpu_int = int(node_cpu)
+        node_mem_gi = int(int(node_mem.rstrip("Ki")) / 1048576) if node_mem.endswith("Ki") else int(node_mem.replace("Gi", ""))
+    except Exception:
+        cpu_req = mem_req = node_cpu_int = node_mem_gi = 0
+
+    if cpu_req > node_cpu_int:
+        raise SystemExit(f"[Pre-flight] Insufficient CPU: profile requests {cpu_req}, node has {node_cpu_int}")
+    if mem_req > node_mem_gi:
+        raise SystemExit(f"[Pre-flight] Insufficient memory: profile requests {mem_req}Gi, node has {node_mem_gi}Gi")
+
+    # 3. Enforce arch-specific image/dtype
+    image = profile.get("image", "")
+    vllm_flags = profile.get("vllm_flags", "")
+    if node_arch == "arm64":
+        if "vllm-cpu" in image and not image.endswith(":latest"):
+            image = image + ":latest"  # enforce tag
+        if "--dtype" not in vllm_flags and "cpu" in vllm_flags:
+            vllm_flags = vllm_flags.strip() + " --dtype float32"
+    # 4. Gated model check (static allowlist for now)
+    gated_models = ["llama", "meta-llama", "mistral"]
+    if any(gm in profile.get("model", "").lower() for gm in gated_models):
+        raise SystemExit(f"[Pre-flight] Model '{profile['model']}' is gated/private. Use an ungated model (e.g., Qwen)")
+
+    # 5. Compose values with enforced fields
+    profile["image"] = image
+    profile["vllm_flags"] = vllm_flags
+    values = _generate_values(profile)
     missing = [k for k in ("model", "image") if not values.get(k)]
     if missing:
         raise SystemExit(f"Profile '{args.profile}' missing required fields: {', '.join(missing)}")
