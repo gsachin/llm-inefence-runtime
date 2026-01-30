@@ -1,0 +1,36 @@
+flowchart TB
+    external["🌐 External Client<br/>localhost:8000"]
+    
+    subgraph Cluster["☸️ Kubernetes Cluster Network"]
+        subgraph ServiceLayer["Service Layer"]
+            svc["📡 Service: my-llm-predictor<br/>ClusterIP: 10.96.69.237:80<br/>selector: app=isvc.my-llm-predictor"]
+        end
+        
+        subgraph Routing["kube-proxy / iptables"]
+            endpoints["🔗 Endpoints<br/>10.244.0.18:8000"]
+        end
+        
+        subgraph PodLayer["Pod Layer"]
+            subgraph Pod["Pod: my-llm-predictor-xxx"]
+                subgraph Container["kserve-container"]
+                    vllm["🚀 vLLM Server<br/>Listening: 0.0.0.0:8000"]
+                    subgraph Model["Model Runtime"]
+                        qwen["🤖 Qwen/Qwen2.5-0.5B-Instruct<br/>Parameters: ~500M<br/>Context: 32768 tokens<br/>KV Cache: 2GB"]
+                    end
+                end
+            end
+        end
+        
+        node["🖥️ Node: llm-dev-control-plane<br/>Arch: ARM64 (Apple Silicon)<br/>CNI: kindnet (10.244.0.0/16)"]
+    end
+
+    external -->|"port-forward"| svc
+    svc --> endpoints
+    endpoints --> vllm
+    vllm --> qwen
+    Pod --> node
+
+    style external fill:#e1f5fe
+    style ServiceLayer fill:#e8f5e9
+    style PodLayer fill:#fff3e0
+    style Model fill:#ffebee
