@@ -1,0 +1,527 @@
+# =============================================================================
+# Platform Dependency Definitions
+# =============================================================================
+# Defines dependencies for each platform with check and install commands.
+# Used by the UI wizard to auto-install prerequisites.
+#
+# Structure:
+#   - cli_tools: Tools installed on the local machine (can proceed without cluster)
+#   - cluster_components: Components that require a running Kubernetes cluster
+# =============================================================================
+
+platforms:
+
+  # ---------------------------------------------------------------------------
+  # macOS with Apple Silicon (M1/M2/M3)
+  # ---------------------------------------------------------------------------
+  mac_m_series:
+    description: "macOS with Apple Silicon (M1/M2/M3/M4)"
+    
+    # CLI tools - installed on local machine
+    cli_tools:
+      - name: homebrew
+        version: "4.0+"
+        description: "Package manager for macOS"
+        docs_url: "https://brew.sh"
+        check_cmd: "brew --version"
+        install_cmd: '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        verify_cmd: "brew --version"
+        requires_sudo: false
+        optional: false
+        order: 10
+
+      - name: docker
+        version: "24.0+"
+        description: "Container runtime (Docker Desktop)"
+        docs_url: "https://docs.docker.com/desktop/install/mac-install/"
+        check_cmd: "docker --version"
+        install_cmd: "brew install --cask docker"
+        verify_cmd: "docker --version"
+        requires_sudo: false
+        optional: false
+        order: 20
+
+      - name: kubectl
+        version: "1.29+"
+        description: "Kubernetes CLI"
+        docs_url: "https://kubernetes.io/docs/tasks/tools/install-kubectl-macos/"
+        check_cmd: "kubectl version --client --short 2>/dev/null || kubectl version --client"
+        install_cmd: "brew install kubectl"
+        verify_cmd: "kubectl version --client"
+        requires_sudo: false
+        optional: false
+        order: 30
+
+      - name: helm
+        version: "3.14+"
+        description: "Kubernetes package manager"
+        docs_url: "https://helm.sh/docs/intro/install/"
+        check_cmd: "helm version --short"
+        install_cmd: "brew install helm"
+        verify_cmd: "helm version --short"
+        requires_sudo: false
+        optional: false
+        order: 40
+
+      - name: k3d
+        version: "5.6+"
+        description: "Lightweight Kubernetes in Docker"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d version"
+        install_cmd: "brew install k3d"
+        verify_cmd: "k3d version"
+        requires_sudo: false
+        optional: false
+        order: 50
+
+      - name: python
+        version: "3.10+"
+        description: "Python runtime"
+        docs_url: "https://www.python.org"
+        check_cmd: "python3 --version"
+        install_cmd: "brew install python@3.11"
+        verify_cmd: "python3 --version"
+        requires_sudo: false
+        optional: false
+        order: 15
+    
+    # Cluster components - require running Kubernetes cluster
+    cluster_components:
+      - name: k3d_cluster
+        version: "latest"
+        description: "Local Kubernetes cluster via k3d"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d cluster list 2>/dev/null | grep -q llm-cluster"
+        install_cmd: "k3d cluster create llm-cluster --servers 1 --agents 2 --port 8080:80@loadbalancer --port 8443:443@loadbalancer"
+        verify_cmd: "kubectl cluster-info 2>/dev/null"
+        requires_sudo: false
+        optional: false
+        order: 100
+        requires_cluster: false
+        
+      - name: cert_manager
+        version: "1.14+"
+        description: "Certificate management for Kubernetes"
+        docs_url: "https://cert-manager.io/docs/"
+        check_cmd: "kubectl get namespace cert-manager 2>/dev/null && kubectl -n cert-manager get deployment cert-manager -o jsonpath='{.status.availableReplicas}' 2>/dev/null | grep -q '[0-9]'"
+        install_cmd: |
+          helm repo add jetstack https://charts.jetstack.io --force-update && \
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 300s
+        verify_cmd: "kubectl -n cert-manager get pods -l app=cert-manager"
+        requires_sudo: false
+        optional: false
+        order: 110
+        requires_cluster: true
+        
+      - name: kserve
+        version: "0.13+"
+        description: "KServe for ML model serving"
+        docs_url: "https://kserve.github.io/website/"
+        check_cmd: "kubectl get crd inferenceservices.serving.kserve.io 2>/dev/null"
+        install_cmd: |
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve.yaml && \
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve-cluster-resources.yaml && \
+          kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+        verify_cmd: "kubectl get crd inferenceservices.serving.kserve.io"
+        requires_sudo: false
+        optional: false
+        order: 120
+        requires_cluster: true
+
+  # ---------------------------------------------------------------------------
+  # Linux with NVIDIA RTX GPU
+  # ---------------------------------------------------------------------------
+  linux_nvidia_rtx:
+    description: "Linux workstation with NVIDIA RTX GPU"
+    
+    # CLI tools - installed on local machine
+    cli_tools:
+      - name: docker
+        version: "24.0+"
+        description: "Container runtime"
+        docs_url: "https://docs.docker.com/engine/install/"
+        check_cmd: "docker --version"
+        install_cmd: "curl -fsSL https://get.docker.com | sh"
+        verify_cmd: "docker --version"
+        requires_sudo: true
+        optional: false
+        order: 20
+
+      - name: nvidia-driver
+        version: "535+"
+        description: "NVIDIA GPU driver"
+        docs_url: "https://docs.nvidia.com/datacenter/tesla/tesla-installation-notes/"
+        check_cmd: "nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1"
+        install_cmd: "apt-get update && apt-get install -y nvidia-driver-535"
+        verify_cmd: "nvidia-smi"
+        requires_sudo: true
+        optional: false
+        order: 10
+
+      - name: nvidia-container-toolkit
+        version: "1.14+"
+        description: "NVIDIA Container Toolkit for GPU containers"
+        docs_url: "https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
+        check_cmd: "nvidia-ctk --version 2>/dev/null || dpkg -l nvidia-container-toolkit | grep -q ii"
+        install_cmd: |
+          distribution=$(. /etc/os-release;echo $ID$VERSION_ID) && \
+          curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
+          curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+            tee /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
+          apt-get update && apt-get install -y nvidia-container-toolkit && \
+          nvidia-ctk runtime configure --runtime=docker && \
+          systemctl restart docker
+        verify_cmd: "nvidia-ctk --version"
+        requires_sudo: true
+        optional: false
+        order: 25
+
+      - name: kubectl
+        version: "1.29+"
+        description: "Kubernetes CLI"
+        docs_url: "https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/"
+        check_cmd: "kubectl version --client --short 2>/dev/null || kubectl version --client"
+        install_cmd: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+          chmod +x kubectl && mv kubectl /usr/local/bin/
+        verify_cmd: "kubectl version --client"
+        requires_sudo: true
+        optional: false
+        order: 30
+
+      - name: helm
+        version: "3.14+"
+        description: "Kubernetes package manager"
+        docs_url: "https://helm.sh/docs/intro/install/"
+        check_cmd: "helm version --short"
+        install_cmd: "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+        verify_cmd: "helm version --short"
+        requires_sudo: true
+        optional: false
+        order: 40
+
+      - name: k3d
+        version: "5.6+"
+        description: "Lightweight Kubernetes in Docker"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d version"
+        install_cmd: "curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+        verify_cmd: "k3d version"
+        requires_sudo: true
+        optional: false
+        order: 50
+
+      - name: python
+        version: "3.11+"
+        description: "Python runtime"
+        docs_url: "https://www.python.org"
+        check_cmd: "python3 --version"
+        install_cmd: "apt-get update && apt-get install -y python3 python3-pip python3-venv"
+        verify_cmd: "python3 --version"
+        requires_sudo: true
+        optional: false
+        order: 15
+    
+    # Cluster components
+    cluster_components:
+      - name: k3d_cluster
+        version: "latest"
+        description: "Local Kubernetes cluster via k3d"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d cluster list 2>/dev/null | grep -q llm-cluster"
+        install_cmd: "k3d cluster create llm-cluster --servers 1 --agents 2 --port 8080:80@loadbalancer --port 8443:443@loadbalancer --gpus all"
+        verify_cmd: "kubectl cluster-info 2>/dev/null"
+        requires_sudo: false
+        optional: false
+        order: 100
+        requires_cluster: false
+        
+      - name: cert_manager
+        version: "1.14+"
+        description: "Certificate management for Kubernetes"
+        docs_url: "https://cert-manager.io/docs/"
+        check_cmd: "kubectl get namespace cert-manager 2>/dev/null && kubectl -n cert-manager get deployment cert-manager -o jsonpath='{.status.availableReplicas}' 2>/dev/null | grep -q '[0-9]'"
+        install_cmd: |
+          helm repo add jetstack https://charts.jetstack.io --force-update && \
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 300s
+        verify_cmd: "kubectl -n cert-manager get pods -l app=cert-manager"
+        requires_sudo: false
+        optional: false
+        order: 110
+        requires_cluster: true
+        
+      - name: kserve
+        version: "0.13+"
+        description: "KServe for ML model serving"
+        docs_url: "https://kserve.github.io/website/"
+        check_cmd: "kubectl get crd inferenceservices.serving.kserve.io 2>/dev/null"
+        install_cmd: |
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve.yaml && \
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve-cluster-resources.yaml && \
+          kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+        verify_cmd: "kubectl get crd inferenceservices.serving.kserve.io"
+        requires_sudo: false
+        optional: false
+        order: 120
+        requires_cluster: true
+
+  # ---------------------------------------------------------------------------
+  # WSL2 with CUDA
+  # ---------------------------------------------------------------------------
+  wsl2_cuda12:
+    description: "Windows Subsystem for Linux 2 with CUDA 12.x"
+    
+    # CLI tools
+    cli_tools:
+      - name: docker
+        version: "24.0+"
+        description: "Docker (via Docker Desktop WSL2 backend)"
+        docs_url: "https://docs.docker.com/desktop/wsl/"
+        check_cmd: "docker --version"
+        install_cmd: |
+          # Docker should be installed via Docker Desktop on Windows host
+          echo "Please install Docker Desktop on Windows and enable WSL2 integration"
+        verify_cmd: "docker --version"
+        requires_sudo: false
+        optional: false
+        order: 20
+
+      - name: nvidia-driver
+        version: "535+"
+        description: "NVIDIA GPU driver (Windows host driver provides CUDA support)"
+        docs_url: "https://docs.nvidia.com/cuda/wsl-user-guide/"
+        check_cmd: "nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1"
+        install_cmd: |
+          echo "NVIDIA driver must be installed on Windows host. Download from nvidia.com"
+        verify_cmd: "nvidia-smi"
+        requires_sudo: false
+        optional: false
+        order: 10
+
+      - name: nvidia-container-toolkit
+        version: "1.14+"
+        description: "NVIDIA Container Toolkit for GPU containers in WSL2"
+        docs_url: "https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
+        check_cmd: "nvidia-ctk --version 2>/dev/null"
+        install_cmd: |
+          distribution=$(. /etc/os-release;echo $ID$VERSION_ID) && \
+          curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
+          curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
+          sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+        verify_cmd: "nvidia-ctk --version"
+        requires_sudo: true
+        optional: false
+        order: 25
+
+      - name: kubectl
+        version: "1.29+"
+        description: "Kubernetes CLI"
+        docs_url: "https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/"
+        check_cmd: "kubectl version --client"
+        install_cmd: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+        verify_cmd: "kubectl version --client"
+        requires_sudo: true
+        optional: false
+        order: 30
+
+      - name: helm
+        version: "3.14+"
+        description: "Kubernetes package manager"
+        docs_url: "https://helm.sh/docs/intro/install/"
+        check_cmd: "helm version --short"
+        install_cmd: "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+        verify_cmd: "helm version --short"
+        requires_sudo: true
+        optional: false
+        order: 40
+
+      - name: k3d
+        version: "5.6+"
+        description: "Lightweight Kubernetes in Docker"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d version"
+        install_cmd: "curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+        verify_cmd: "k3d version"
+        requires_sudo: true
+        optional: false
+        order: 50
+
+      - name: python
+        version: "3.11+"
+        description: "Python runtime"
+        docs_url: "https://www.python.org"
+        check_cmd: "python3 --version"
+        install_cmd: "sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv"
+        verify_cmd: "python3 --version"
+        requires_sudo: true
+        optional: false
+        order: 15
+    
+    # Cluster components
+    cluster_components:
+      - name: k3d_cluster
+        version: "latest"
+        description: "Local Kubernetes cluster via k3d"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d cluster list 2>/dev/null | grep -q llm-cluster"
+        install_cmd: "k3d cluster create llm-cluster --servers 1 --agents 2 --port 8080:80@loadbalancer --port 8443:443@loadbalancer --gpus all"
+        verify_cmd: "kubectl cluster-info 2>/dev/null"
+        requires_sudo: false
+        optional: false
+        order: 100
+        requires_cluster: false
+        
+      - name: cert_manager
+        version: "1.14+"
+        description: "Certificate management for Kubernetes"
+        docs_url: "https://cert-manager.io/docs/"
+        check_cmd: "kubectl get namespace cert-manager 2>/dev/null && kubectl -n cert-manager get deployment cert-manager -o jsonpath='{.status.availableReplicas}' 2>/dev/null | grep -q '[0-9]'"
+        install_cmd: |
+          helm repo add jetstack https://charts.jetstack.io --force-update && \
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 300s
+        verify_cmd: "kubectl -n cert-manager get pods -l app=cert-manager"
+        requires_sudo: false
+        optional: false
+        order: 110
+        requires_cluster: true
+        
+      - name: kserve
+        version: "0.13+"
+        description: "KServe for ML model serving"
+        docs_url: "https://kserve.github.io/website/"
+        check_cmd: "kubectl get crd inferenceservices.serving.kserve.io 2>/dev/null"
+        install_cmd: |
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve.yaml && \
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve-cluster-resources.yaml && \
+          kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+        verify_cmd: "kubectl get crd inferenceservices.serving.kserve.io"
+        requires_sudo: false
+        optional: false
+        order: 120
+        requires_cluster: true
+
+  # ---------------------------------------------------------------------------
+  # WSL2 CPU-only fallback
+  # ---------------------------------------------------------------------------
+  wsl2_cpu:
+    description: "Windows Subsystem for Linux 2 (CPU only)"
+    
+    # CLI tools
+    cli_tools:
+      - name: docker
+        version: "24.0+"
+        description: "Docker (via Docker Desktop WSL2 backend)"
+        docs_url: "https://docs.docker.com/desktop/wsl/"
+        check_cmd: "docker --version"
+        install_cmd: |
+          echo "Please install Docker Desktop on Windows and enable WSL2 integration"
+        verify_cmd: "docker --version"
+        requires_sudo: false
+        optional: false
+        order: 20
+
+      - name: kubectl
+        version: "1.29+"
+        description: "Kubernetes CLI"
+        docs_url: "https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/"
+        check_cmd: "kubectl version --client"
+        install_cmd: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+        verify_cmd: "kubectl version --client"
+        requires_sudo: true
+        optional: false
+        order: 30
+
+      - name: helm
+        version: "3.14+"
+        description: "Kubernetes package manager"
+        docs_url: "https://helm.sh/docs/intro/install/"
+        check_cmd: "helm version --short"
+        install_cmd: "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+        verify_cmd: "helm version --short"
+        requires_sudo: true
+        optional: false
+        order: 40
+
+      - name: k3d
+        version: "5.6+"
+        description: "Lightweight Kubernetes in Docker"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d version"
+        install_cmd: "curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+        verify_cmd: "k3d version"
+        requires_sudo: true
+        optional: false
+        order: 50
+
+      - name: python
+        version: "3.11+"
+        description: "Python runtime"
+        docs_url: "https://www.python.org"
+        check_cmd: "python3 --version"
+        install_cmd: "sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv"
+        verify_cmd: "python3 --version"
+        requires_sudo: true
+        optional: false
+        order: 15
+    
+    # Cluster components
+    cluster_components:
+      - name: k3d_cluster
+        version: "latest"
+        description: "Local Kubernetes cluster via k3d"
+        docs_url: "https://k3d.io"
+        check_cmd: "k3d cluster list 2>/dev/null | grep -q llm-cluster"
+        install_cmd: "k3d cluster create llm-cluster --servers 1 --agents 2 --port 8080:80@loadbalancer --port 8443:443@loadbalancer"
+        verify_cmd: "kubectl cluster-info 2>/dev/null"
+        requires_sudo: false
+        optional: false
+        order: 100
+        requires_cluster: false
+        
+      - name: cert_manager
+        version: "1.14+"
+        description: "Certificate management for Kubernetes"
+        docs_url: "https://cert-manager.io/docs/"
+        check_cmd: "kubectl get namespace cert-manager 2>/dev/null && kubectl -n cert-manager get deployment cert-manager -o jsonpath='{.status.availableReplicas}' 2>/dev/null | grep -q '[0-9]'"
+        install_cmd: |
+          helm repo add jetstack https://charts.jetstack.io --force-update && \
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 300s
+        verify_cmd: "kubectl -n cert-manager get pods -l app=cert-manager"
+        requires_sudo: false
+        optional: false
+        order: 110
+        requires_cluster: true
+        
+      - name: kserve
+        version: "0.13+"
+        description: "KServe for ML model serving"
+        docs_url: "https://kserve.github.io/website/"
+        check_cmd: "kubectl get crd inferenceservices.serving.kserve.io 2>/dev/null"
+        install_cmd: |
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve.yaml && \
+          kubectl apply -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve-cluster-resources.yaml && \
+          kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+        verify_cmd: "kubectl get crd inferenceservices.serving.kserve.io"
+        requires_sudo: false
+        optional: false
+        order: 120
+        requires_cluster: true

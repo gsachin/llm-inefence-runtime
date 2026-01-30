@@ -1,0 +1,118 @@
+# =============================================================================
+# Model Persistence Strategy
+# =============================================================================
+# Configures how model weights are cached per platform to avoid redundant
+# downloads (e.g., Llama-3 70B is ~140GB).
+# =============================================================================
+
+storage_strategies:
+
+  # ---------------------------------------------------------------------------
+  # Mac M-Series
+  # ---------------------------------------------------------------------------
+  mac_m_series:
+    default_cache_path: "~/.mlops-wizard/model-cache"
+    min_free_space_gb: 200
+    storage_class: "hostpath"
+    k8s_mount:
+      type: "hostPath"
+      hostPath: "/Users/{user}/.mlops-wizard/model-cache"
+      mountPath: "/models"
+    ui_prompt: "Store models on: [Internal SSD / External Drive]"
+    env_vars:
+      HF_HOME: "/models/huggingface"
+      TRANSFORMERS_CACHE: "/models/huggingface/transformers"
+
+  # ---------------------------------------------------------------------------
+  # WSL2 Windows
+  # ---------------------------------------------------------------------------
+  wsl2_windows:
+    # CRITICAL: Must be on Linux filesystem, not /mnt/c/...
+    default_cache_path: "/home/{user}/.mlops-wizard/model-cache"
+    min_free_space_gb: 200
+    storage_class: "local-path"  # k3d default
+    k8s_mount:
+      type: "hostPath"
+      hostPath: "/home/{user}/.mlops-wizard/model-cache"
+      mountPath: "/models"
+    ui_prompt: "Store models on: [WSL Filesystem / Windows Drive (slower)]"
+    performance_warning: |
+      Windows filesystem mounts (/mnt/c/...) are ~10x slower for LLM model loading.
+      Store models on the Linux native filesystem for optimal performance.
+    env_vars:
+      HF_HOME: "/models/huggingface"
+      TRANSFORMERS_CACHE: "/models/huggingface/transformers"
+
+  # ---------------------------------------------------------------------------
+  # Linux Workstation
+  # ---------------------------------------------------------------------------
+  linux_workstation:
+    default_cache_path: "/var/lib/mlops-wizard/models"
+    min_free_space_gb: 200
+    storage_class: "local-path"
+    k8s_mount:
+      type: "hostPath"
+      hostPath: "/var/lib/mlops-wizard/models"
+      mountPath: "/models"
+    ui_prompt: "Store models on: [System Drive / NVMe Drive / NAS]"
+    env_vars:
+      HF_HOME: "/models/huggingface"
+      TRANSFORMERS_CACHE: "/models/huggingface/transformers"
+
+  # ---------------------------------------------------------------------------
+  # Cloud AWS
+  # ---------------------------------------------------------------------------
+  cloud_aws:
+    storage_class: "gp3-encrypted"  # EBS
+    alternative: "s3-csi"  # For large models
+    k8s_mount:
+      type: "persistentVolumeClaim"
+      storageClassName: "gp3-encrypted"
+      accessModes: ["ReadWriteOnce"]
+      storage: "500Gi"
+    cost_estimate: "$40/month for 500GB gp3"
+    ui_prompt: "Store models: [EBS (fast) / S3 + Cache (cheaper)]"
+    env_vars:
+      HF_HOME: "/models/huggingface"
+      TRANSFORMERS_CACHE: "/models/huggingface/transformers"
+
+  # ---------------------------------------------------------------------------
+  # Cloud Azure
+  # ---------------------------------------------------------------------------
+  cloud_azure:
+    storage_class: "managed-premium"
+    k8s_mount:
+      type: "persistentVolumeClaim"
+      storageClassName: "managed-premium"
+      accessModes: ["ReadWriteOnce"]
+      storage: "500Gi"
+    cost_estimate: "$70/month for 500GB Premium SSD"
+
+  # ---------------------------------------------------------------------------
+  # Cloud GCP
+  # ---------------------------------------------------------------------------
+  cloud_gcp:
+    storage_class: "pd-ssd"
+    k8s_mount:
+      type: "persistentVolumeClaim"
+      storageClassName: "pd-ssd"
+      accessModes: ["ReadWriteOnce"]
+      storage: "500Gi"
+    cost_estimate: "$85/month for 500GB SSD PD"
+
+# Helm values template for persistence
+helm_values_template:
+  persistence:
+    enabled: true
+    storageClass: "${storage_class}"
+    size: "200Gi"
+    mountPath: "/models"
+    hostPath: "${host_path}"  # For local platforms
+
+  modelCache:
+    huggingfaceHome: "/models/huggingface"
+    envVars:
+      - name: HF_HOME
+        value: "/models/huggingface"
+      - name: TRANSFORMERS_CACHE
+        value: "/models/huggingface/transformers"

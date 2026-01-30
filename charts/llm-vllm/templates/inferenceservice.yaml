@@ -10,6 +10,9 @@ metadata:
   name: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
   labels:
     {{- include "llm-vllm.labels" . | nindent 4 }}
+  annotations:
+    # Use RawDeployment mode (no Knative required)
+    serving.kserve.io/deploymentMode: RawDeployment
 spec:
   predictor:
     containers:

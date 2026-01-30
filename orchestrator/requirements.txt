@@ -4,3 +4,4 @@
 # - `orchestrator/requirement-prod.txt` for production/CI images
 
 PyYAML==6.0.2
+packaging>=23.0
