@@ -10,6 +10,9 @@ metadata:
   name: {{ .Release.Name | trunc 63 | trimSuffix "-" }}
   labels:
     {{- include "llm-vllm.labels" . | nindent 4 }}
+  annotations:
+    # Use RawDeployment mode (no Knative required)
+    serving.kserve.io/deploymentMode: RawDeployment
 spec:
   predictor:
     containers:
@@ -25,13 +28,18 @@ spec:
           {{- else }}
           - {{ printf "vllm serve %s %s" .Values.model (.Values.vllmFlags | default "") | quote }}
           {{- end }}
-        {{- if .Values.env }}
         env:
+          {{- if .Values.hfToken.enabled }}
+          - name: HF_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.hfToken.secretName | quote }}
+                key: {{ .Values.hfToken.secretKey | quote }}
+          {{- end }}
           {{- range .Values.env }}
           - name: {{ .name | quote }}
             value: {{ .value | quote }}
           {{- end }}
-        {{- end }}
         resources:
           requests:
             {{- if .Values.resources.cpuRequest }}

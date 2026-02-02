@@ -1,0 +1,141 @@
+# =============================================================================
+# Dependency Version Matrix
+# =============================================================================
+# Maps platform + hardware to specific tool versions for compatibility.
+# This ensures reproducible environments across different machines.
+# =============================================================================
+
+compatibility_matrix:
+
+  # ---------------------------------------------------------------------------
+  # Mac M-Series (ARM64, Metal)
+  # ---------------------------------------------------------------------------
+  mac_m_series:
+    python: "3.10.13"  # vLLM Metal build requires 3.10
+    node: "20.11.0"
+    kubectl: "1.29.2"
+    helm: "3.14.0"
+    vllm: "0.4.0"
+    torch: "2.2.0"  # MPS backend
+    dtype_support: ["fp16", "fp32"]  # No int8 on Metal
+    cuda: null
+    
+    inference_runtimes:
+      vllm_mps:
+        description: "Standard vLLM with Metal Performance Shaders"
+        python: "3.10.13"
+        vllm: "0.4.0"
+        torch: "2.2.0"
+        env_vars:
+          PYTORCH_ENABLE_MPS_FALLBACK: "1"
+          VLLM_USE_MODELSCOPE: "false"
+        pros: "Standard vLLM API compatibility"
+        cons: "Slower than MLX on Metal"
+        
+      mlx_lm:
+        description: "MLX-native inference (faster on Apple Silicon)"
+        python: "3.10.13"
+        mlx: "0.6.0"
+        mlx_lm: "0.4.0"
+        pros: "2-3x faster on Apple Silicon"
+        cons: "Different API (not vLLM-compatible)"
+        integration_note: "Requires custom KServe runtime wrapper"
+
+  # ---------------------------------------------------------------------------
+  # WSL2 + CUDA 12.x
+  # ---------------------------------------------------------------------------
+  wsl2_cuda12:
+    python: "3.11.8"
+    node: "20.11.0"
+    kubectl: "1.29.2"
+    helm: "3.14.0"
+    vllm: "0.4.0"
+    cuda: "12.1"
+    torch: "2.2.0+cu121"
+    dtype_support: ["fp16", "int8", "int4"]
+
+  # ---------------------------------------------------------------------------
+  # WSL2 CPU Fallback
+  # ---------------------------------------------------------------------------
+  wsl2_cpu:
+    python: "3.11.8"
+    node: "20.11.0"
+    kubectl: "1.29.2"
+    helm: "3.14.0"
+    vllm: "0.4.0+cpu"
+    cuda: null
+    torch: "2.2.0"
+    dtype_support: ["fp32"]
+
+  # ---------------------------------------------------------------------------
+  # Linux Workstation (NVIDIA GTX/RTX)
+  # ---------------------------------------------------------------------------
+  linux_nvidia_gtx:
+    python: "3.11.8"
+    node: "20.11.0"
+    kubectl: "1.29.2"
+    helm: "3.14.0"
+    vllm: "0.3.3"
+    cuda: "11.8"  # GTX compatibility
+    torch: "2.1.2+cu118"
+    driver_min: "520.61.05"
+    dtype_support: ["fp16", "int8"]
+
+  linux_nvidia_rtx:
+    python: "3.11.8"
+    node: "20.11.0"
+    kubectl: "1.29.2"
+    helm: "3.14.0"
+    vllm: "0.4.0"
+    cuda: "12.1"
+    torch: "2.2.0+cu121"
+    driver_min: "535.54.03"
+    dtype_support: ["fp16", "int8", "int4"]
+
+  # ---------------------------------------------------------------------------
+  # NVIDIA DGX Spark (Grace ARM64 + GB10 GPU, unified memory)
+  # ---------------------------------------------------------------------------
+  linux_dgx_spark:
+    python: "3.11.8"
+    node: "20.18.0"  # LTS for ARM64
+    kubectl: "1.35.0"  # ARM64 binary
+    helm: "3.20.0"
+    minikube: "1.35.0"  # Recommended K8s engine (k3d broken)
+    vllm: "0.7.0"  # NGC multi-arch image
+    vllm_image: "nvcr.io/nvidia/vllm:v0.7.0"  # Pinned NGC image
+    cuda: "13.1"  # DGX Spark ships with CUDA 13.x
+    torch: "2.7.0"  # NGC image version
+    driver_min: "590.48.01"  # Required for GB10
+    dtype_support: ["fp16", "bf16", "int8", "int4", "fp8"]  # Blackwell full support
+    architecture: "aarch64"
+    
+    hardware_notes:
+      unified_memory: true
+      unified_memory_gb: 128  # CPU-GPU shared
+      gpu_model: "GB10"
+      cpu_model: "Grace (ARM64 Neoverse V2)"
+      nvml_memory_queries: "Not Supported"  # Known limitation
+      
+    k8s_notes:
+      recommended: "minikube"
+      k3d_status: "BROKEN"  # nvidia-device-plugin crashes
+      k3d_issue: "NVML memory queries fail on unified memory"
+      start_command: "minikube start --driver=docker --gpus=all"
+      
+    scaling_notes:
+      strategy: "vertical_first"  # Batching before replicas
+      hpa_metric: "cpu/memory"  # Not GPU utilization
+      reason: "Single powerful GPU; minimize cold starts"
+
+  # ---------------------------------------------------------------------------
+  # Cloud (AWS/Azure/GCP with A100/H100)
+  # ---------------------------------------------------------------------------
+  cloud_cuda12:
+    python: "3.11.8"
+    node: "20.11.0"
+    kubectl: "1.29.2"
+    helm: "3.14.0"
+    vllm: "0.4.0"
+    cuda: "12.1"
+    torch: "2.2.0+cu121"
+    dtype_support: ["fp16", "int8", "int4", "fp8"]

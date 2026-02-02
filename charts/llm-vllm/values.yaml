@@ -27,6 +27,13 @@ resources:
 # Format: list of {name: "VAR_NAME", value: "value"}
 env: []
 
+# HuggingFace token Secret configuration
+# If enabled, mounts HF_TOKEN from the specified Secret
+hfToken:
+  enabled: false
+  secretName: "hf-token"
+  secretKey: "token"
+
 service:
   port: 8000
 

@@ -1,0 +1,86 @@
+# =============================================================================
+# Kubernetes Engine Configuration
+# =============================================================================
+# Maps platforms to recommended K8s distributions with install commands.
+# =============================================================================
+
+platforms:
+
+  mac_m_series:
+    recommended: "orbstack"
+    alternatives: ["docker-desktop", "kind"]
+    install_commands:
+      orbstack: "brew install orbstack"
+      docker-desktop: "brew install --cask docker"
+      kind: "brew install kind"
+    reason: "Orbstack is faster and more memory-efficient than Docker Desktop on Mac"
+    gpu_support: false  # Metal not exposed to K8s
+    
+  wsl2_windows:
+    recommended: "k3d"
+    alternatives: ["kind", "docker-desktop"]
+    install_commands:
+      k3d: "curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+      kind: "go install sigs.k8s.io/kind@latest"
+      docker-desktop: "Enable via Docker Desktop settings"
+    reason: "k3d is lightweight and CUDA-aware for GPU workloads"
+    gpu_support: true  # Via CUDA passthrough
+    
+  linux_workstation:
+    recommended: "k3s"
+    alternatives: ["microk8s", "kind"]
+    install_commands:
+      k3s: "curl -sfL https://get.k3s.io | sh -"
+      microk8s: "sudo snap install microk8s --classic"
+      kind: "go install sigs.k8s.io/kind@latest"
+    reason: "k3s is native and has no Docker overhead for GPU workloads"
+    gpu_support: true  # Via NVIDIA Container Toolkit
+    post_install:
+      - "sudo nvidia-ctk runtime configure --runtime=containerd"
+      - "sudo systemctl restart containerd"
+
+  # DGX Spark (Grace ARM64 + GB10 GPU with unified memory)
+  # IMPORTANT: k3d is BROKEN on DGX Spark due to NVML memory query issues
+  linux_dgx_spark:
+    recommended: "minikube"
+    alternatives: []  # k3d broken, k3s untested
+    install_commands:
+      minikube: |
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64
+        sudo install minikube-linux-arm64 /usr/local/bin/minikube
+        rm minikube-linux-arm64
+    reason: "minikube works on DGX Spark; k3d NVML calls fail on unified memory (returns 'Not Supported')"
+    gpu_support: true  # Via --gpus=all flag
+    architecture: "aarch64"
+    notes:
+      - "GB10 unified memory: NVML memory.total returns 'Not Supported'"
+      - "k3d BROKEN: nvidia-device-plugin crashes at startup"
+      - "Use 'minikube start --driver=docker --gpus=all'"
+      - "Scale on workload metrics, not GPU telemetry"
+    post_install:
+      - "minikube start --driver=docker --gpus=all"
+      - "minikube kubectl -- get nodes"
+    
+  cloud_aws:
+    recommended: "eks"
+    alternatives: ["kops"]
+    install_commands:
+      eksctl: "brew install eksctl"  # or curl
+    reason: "Managed EKS with GPU node pools"
+    gpu_support: true
+    
+  cloud_azure:
+    recommended: "aks"
+    alternatives: []
+    install_commands:
+      az: "brew install azure-cli"
+    reason: "Managed AKS with GPU node pools"
+    gpu_support: true
+    
+  cloud_gcp:
+    recommended: "gke"
+    alternatives: []
+    install_commands:
+      gcloud: "brew install google-cloud-sdk"
+    reason: "Managed GKE with GPU node pools"
+    gpu_support: true
